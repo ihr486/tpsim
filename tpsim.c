@@ -16,7 +16,7 @@ typedef struct params_tag
     long S;     //A/D resolution
     double Kp;  //Proportional coefficient
     double Ki;  //Integral coefficient
-    double Kd;  //Differential coefficient
+    double T;   //Sine wave period
 } params_t;
 
 typedef struct state_tag
@@ -116,27 +116,30 @@ int main(int argc, const char *argv[])
         .R = 1.68E-8 * 180 * PI * 15E-3 / (PI * 0.2E-3 * 0.2E-3) + 2,
         .L = 150E-6,
         .Rs = 0.24,
-        .P = 512,
+        .P = 1024,
         .N = 1000,
         .Kp = 5,
         .Ki = 0.5,
-        .S = 1024
+        .S = 1024,
+        .T = 10E-3
     };
 
     state_t state = {
         .I = {0, 0},
         .Vf = {0, 0, 0},
-        .Ir = {0.5, 0.5},
+        .Ir = {0, 0},
         .Ie = {0, 0},
         .V = {0, 0}
     };
 
-    FILE *gp = popen("gnuplot -persist", "w");
-    fprintf(gp, "plot '-' using 1:2 with lines\n");
+    FILE *datafile = fopen("output.dat", "w");
 
     for (long i = 0; i < params.N; i++)
     {
         double t0 = 1.0 / params.F * params.P * i;
+
+        state.Ir[0] = 0.5 * sin(2.0 * PI * t0 / params.T);
+        state.Ir[1] = 0.5 * sin(2.0 * PI * (t0 / params.T + 1.0 / 3));
 
         int D[4] = {0, 0, 0, params.P};
         pid_control(&params, &state, D);
@@ -154,11 +157,15 @@ int main(int argc, const char *argv[])
             update_state(&params, &state, E, t1);
         }
 
-        fprintf(gp, "%lf %lf %lf %lf\n", t0, state.I[0] * 1E+3, state.I[1] * 1E+3, -(state.I[0] + state.I[1]) * 1E+3);
+        fprintf(datafile, "%lf %lf %lf %lf\n", t0, state.I[0] * 1E+3, state.I[1] * 1E+3, -(state.I[0] + state.I[1]) * 1E+3);
         //printf("%lf %lf %lf %lf\n", t0, state.Vf[0], state.Vf[1], state.Vf[2]);
     }
-    fprintf(gp, "e\n");
+    fclose(datafile);
 
+    FILE *gp = popen("gnuplot -persist", "w");
+    fprintf(gp, "plot 'output.dat' using 1:2 with lines\n");
+    fprintf(gp, "replot 'output.dat' using 1:3 with lines\n");
+    fprintf(gp, "replot 'output.dat' using 1:4 with lines\n");
     pclose(gp);
 
     return 0;
